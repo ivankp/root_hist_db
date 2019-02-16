@@ -91,7 +91,7 @@ public:
 std::set<vector<double>> edges;
 vector<const vector<double>*> edges_list;
 struct hist_t {
-  vector<string> props;
+  vector<string> labels;
   vector<double> bins;
   unsigned edges;
 };
@@ -99,7 +99,7 @@ vector<hist_t> hs;
 
 int main(int argc, char* argv[]) {
   vector<const char*> ifnames;
-  vector<string> props_names;
+  vector<string> labels_names;
   const char* ofname;
 
   try {
@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
     if (program_options()
       (ifnames,'i',"input ROOT files",req(),pos())
       (ofname,'o',"output sqlite database",req())
-      (props_names,'p',"names of properties")
+      (labels_names,'l',"names of histogram labels")
       .parse(argc,argv,true)) return 0;
   } catch (const std::exception& e) {
     cerr << e << endl;
@@ -131,12 +131,12 @@ int main(int argc, char* argv[]) {
     }
 
     y_combinator([](auto f, auto* dir,
-      const vector<string>& props, int depth=0
+      const vector<string>& labels, int depth=0
     ) -> void {
       for (auto& key : get_keys(dir)) {
         // directory
         auto* dir = safe_key_cast<TDirectory>(key);
-        if (dir) { f(dir,props+dir->GetName(),depth+1); continue; }
+        if (dir) { f(dir,labels+dir->GetName(),depth+1); continue; }
         // histogram
         auto* h = safe_key_cast<TH1>(key);
         if (!h || (depth==0 && !strcmp(h->GetName(),"N"))) continue;
@@ -162,20 +162,21 @@ int main(int argc, char* argv[]) {
         for (int i=0; i<=n; ++i)
           hist.bins[i] = h->GetBinContent(i);
 
-        hist.props = props + (h->GetName()/"[^_]+_[^_]+"_re);
-        // TEST(props2)
+        hist.labels = labels + (h->GetName()/"[^_]+_[^_]+"_re);
+        // TEST(labels2)
       }
     })(&f, match[1].str()/"[^_]+"_re);
   }
 
-  TEST(edges.size())
+  cout << "Distinct axes: " << edges.size() << endl;
 
-  size_t nprops = 0;
+  size_t nlabels = 0;
   for (const auto& h : hs)
-    nprops = std::max(nprops,h.props.size());
-  TEST(nprops)
-  for (size_t i=props_names.size(); i<nprops; ++i)
-    props_names.emplace_back(cat("prop",i));
+    nlabels = std::max(nlabels,h.labels.size());
+  for (size_t i=labels_names.size(); i<nlabels; ++i)
+    labels_names.emplace_back(cat("label",i));
+
+  cout << "Hist labels: " << nlabels << endl;
 
   cout << "Writing " << ofname << endl;
 
@@ -184,12 +185,12 @@ int main(int argc, char* argv[]) {
 
   std::stringstream cmd;
   cmd << "CREATE TABLE hist(";
-  for (const auto& name : props_names) cmd << '\n' << name << " TEXT,";
-  cmd << "\nedges INTEGER,\nbins TEXT\n);";
+  for (const auto& name : labels_names) cmd << '\n' << name << " TEXT,";
+  cmd << "\naxis INTEGER,\nbins TEXT\n);";
   db(cmd.str());
   cmd.str({});
 
-  cmd << "CREATE TABLE edges("
+  cmd << "CREATE TABLE axes("
     "\nid INTEGER PRIMARY KEY,"
     "\nedges TEXT"
     "\n);";
@@ -200,8 +201,8 @@ int main(int argc, char* argv[]) {
   for (ivanp::timed_counter<> cnt(hs.size()); !!cnt; ++cnt) {
     const auto& h = hs[cnt];
     cmd << "insert into hist values (";
-    for (const auto& prop : h.props) cmd << '\'' << prop << "\',";
-    for (size_t i=h.props.size(); i<nprops; ++i) cmd << "\'\',";
+    for (const auto& label : h.labels) cmd << '\'' << label << "\',";
+    for (size_t i=h.labels.size(); i<nlabels; ++i) cmd << "\'\',";
     cmd << h.edges << ",\'";
     char buff[16];
     for (unsigned i=0, n=h.bins.size(); i<n; ++i) {
@@ -217,7 +218,7 @@ int main(int argc, char* argv[]) {
 
   db("BEGIN;");
   for (unsigned i=0, n=edges_list.size(); i<n; ++i) {
-    cmd << "insert into edges values (" << i << ",\'";
+    cmd << "insert into axes values (" << i << ",\'";
     const auto& edges = *edges_list[i];
     for (unsigned j=0, m=edges.size(); j<m; ++j) {
       if (j) cmd << ' ';
