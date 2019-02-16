@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <algorithm>
 
-// #include <nlohmann/json.hpp>
 #include <boost/regex.hpp>
 
 #include <sqlite3.h>
@@ -32,7 +31,6 @@ using std::vector;
 using std::string;
 using std::get;
 using boost::regex;
-// using nlohmann::json;
 using ivanp::cat;
 using ivanp::error;
 using ivanp::y_combinator;
@@ -92,7 +90,6 @@ public:
 
 std::set<vector<double>> edges;
 vector<const vector<double>*> edges_list;
-// std::map<vector<string>,json> hs;
 struct hist_t {
   vector<string> props;
   vector<double> bins;
@@ -172,7 +169,6 @@ int main(int argc, char* argv[]) {
   }
 
   TEST(edges.size())
-  // for (const auto& x : edges) cout << x << endl;
 
   size_t nprops = 0;
   for (const auto& h : hs)
@@ -185,27 +181,49 @@ int main(int argc, char* argv[]) {
 
   remove(ofname);
   sqlite db(ofname);
+
   std::stringstream cmd;
   cmd << "CREATE TABLE hist(";
   for (const auto& name : props_names) cmd << '\n' << name << " TEXT,";
   cmd << "\nedges INTEGER,\nbins TEXT\n);";
   db(cmd.str());
   cmd.str({});
+
+  cmd << "CREATE TABLE edges("
+    "\nid INTEGER PRIMARY KEY,"
+    "\nedges TEXT"
+    "\n);";
+  db(cmd.str());
+  cmd.str({});
+
   db("BEGIN;");
-  for (ivanp::timed_counter<> cnt(hs.size()); cnt.ok(); ++cnt) {
+  for (ivanp::timed_counter<> cnt(hs.size()); !!cnt; ++cnt) {
     const auto& h = hs[cnt];
-  // for (const auto& h : hs) {
     cmd << "insert into hist values (";
     for (const auto& prop : h.props) cmd << '\'' << prop << "\',";
     for (size_t i=h.props.size(); i<nprops; ++i) cmd << "\'\',";
     cmd << h.edges << ",\'";
     char buff[16];
     for (unsigned i=0, n=h.bins.size(); i<n; ++i) {
-      if (i) cmd << ',';
+      if (i) cmd << ' ';
       sprintf(buff,"%.6g",h.bins[i]);
       cmd << buff;
     }
     cmd << "\')";
+    db(cmd.str());
+    cmd.str({});
+  }
+  db("END;");
+
+  db("BEGIN;");
+  for (unsigned i=0, n=edges_list.size(); i<n; ++i) {
+    cmd << "insert into edges values (" << i << ",\'";
+    const auto& edges = *edges_list[i];
+    for (unsigned j=0, m=edges.size(); j<m; ++j) {
+      if (j) cmd << ' ';
+      cmd << edges[j];
+    }
+    cmd << "\');";
     db(cmd.str());
     cmd.str({});
   }
