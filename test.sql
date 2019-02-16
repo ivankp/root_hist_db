@@ -1,4 +1,4 @@
-select bins, axes.edges
+select type, jet, var1, var2, bins, axes.edges
 from hist
 INNER JOIN axes ON hist.axis = axes.id
 where
