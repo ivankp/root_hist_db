@@ -31,7 +31,7 @@ all: $(EXES)
 
 # -------------------------------------------------------------------
 C_make_db := $(ROOT_CXXFLAGS)
-L_make_db := $(ROOT_LDLIBS) -lboost_regex -lsqlite3
+L_make_db := $(ROOT_LDLIBS) -lsqlite3
 bin/make_db: ivanp/program_options/program_options.o
 # -------------------------------------------------------------------
 

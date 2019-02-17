@@ -6,8 +6,7 @@
 #include <cstring>
 #include <cstdio>
 #include <algorithm>
-
-#include <boost/regex.hpp>
+#include <regex>
 
 #include <sqlite3.h>
 
@@ -30,7 +29,7 @@ using std::endl;
 using std::vector;
 using std::string;
 using std::get;
-using boost::regex;
+using std::regex;
 using ivanp::cat;
 using ivanp::error;
 using ivanp::y_combinator;
@@ -39,11 +38,11 @@ regex operator""_re (const char* str, size_t n) { return regex(str); }
 
 template <typename T>
 vector<string> operator/ (const T& str, const regex& re) {
-  boost::sregex_token_iterator it(begin(str), end(str), re), _end;
+  std::sregex_token_iterator it(begin(str), end(str), re), _end;
   return { it, _end };
 }
 vector<string> operator/ (const char* str, const regex& re) {
-  boost::cregex_token_iterator it(str, str+strlen(str), re), _end;
+  std::cregex_token_iterator it(str, str+strlen(str), re), _end;
   return { it, _end };
 }
 
@@ -82,11 +81,13 @@ public:
       throw SQL_error(str);
     }
   }
-  void operator()(const string& str, callback_t callback = nullptr, void* a = nullptr) {
-    (*this)(str.c_str(),callback,a);
-  }
   ~sqlite() { sqlite3_close(db); }
 };
+std::stringstream& operator>> (std::stringstream& ss, sqlite& db) {
+  db(ss.str().c_str());
+  ss.str({});
+  return ss;
+}
 
 std::set<vector<double>> edges;
 vector<const vector<double>*> edges_list;
@@ -115,11 +116,11 @@ int main(int argc, char* argv[]) {
   }
 
   const regex file_regex(".*/(.+)\\.root$");
-  boost::cmatch match;
+  std::cmatch match;
 
   for (const char* ifname : ifnames) {
     cout << ifname << endl;
-    if (!boost::regex_match(ifname, match, file_regex)) {
+    if (!std::regex_match(ifname, match, file_regex)) {
       cerr << "File name \""<<ifname<<"\" did not match required format\n";
       return 1;
     }
@@ -187,15 +188,13 @@ int main(int argc, char* argv[]) {
   cmd << "CREATE TABLE hist(";
   for (const auto& name : labels_names) cmd << '\n' << name << " TEXT,";
   cmd << "\naxis INTEGER,\nbins TEXT\n);";
-  db(cmd.str());
-  cmd.str({});
+  cmd >> db;
 
   cmd << "CREATE TABLE axes("
     "\nid INTEGER PRIMARY KEY,"
     "\nedges TEXT"
     "\n);";
-  db(cmd.str());
-  cmd.str({});
+  cmd >> db;
 
   db("BEGIN;");
   for (ivanp::timed_counter<> cnt(hs.size()); !!cnt; ++cnt) {
@@ -211,8 +210,7 @@ int main(int argc, char* argv[]) {
       cmd << buff;
     }
     cmd << "\')";
-    db(cmd.str());
-    cmd.str({});
+    cmd >> db;
   }
   db("END;");
 
@@ -225,8 +223,7 @@ int main(int argc, char* argv[]) {
       cmd << edges[j];
     }
     cmd << "\');";
-    db(cmd.str());
-    cmd.str({});
+    cmd >> db;
   }
   db("END;");
 }
