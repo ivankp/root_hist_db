@@ -63,23 +63,45 @@ std::ostream& operator<< (std::ostream& o, const vector<T>& v) {
   return o;
 }
 
-class SQL_error: ivanp::error { using ivanp::error::error; };
+// class SQL_error: ivanp::error { using ivanp::error::error; };
+struct SQL_error : std::runtime_error {
+  using std::runtime_error::runtime_error;
+  template <typename... T>
+  SQL_error(T&&... x): std::runtime_error(cat(x...)) { };
+  SQL_error(const char* str): std::runtime_error(str) { };
+};
 class sqlite {
   sqlite3* db;
 public:
   sqlite(const char* fname) {
-    if (sqlite3_open(fname,&db)) throw SQL_error(
-      "Cannot open sqlite database file \"", fname, '\"'
-    );
+    if (sqlite3_open(fname, &db))
+      throw SQL_error(sqlite3_errmsg(db), "\": ", fname);
   }
-  typedef int (*callback_t)(void*,int,char**,char**);
-  void operator()(const char* str, callback_t callback = nullptr, void* a = nullptr) {
+  void operator()(const char* str) {
     char* err_msg = nullptr;
-    if (sqlite3_exec(db, str, callback, a, &err_msg) != SQLITE_OK) {
+    if (sqlite3_exec(db, str, nullptr, nullptr, &err_msg)) {
       cerr <<"\033[31m"<< err_msg <<"\033[0m"<< endl;
       sqlite3_free(err_msg);
       throw SQL_error(str);
     }
+  }
+  void operator()(const char* str, const void* blob, size_t blob_size) {
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db,str,-1,&stmt,NULL)) {
+      cerr <<"\033[31m"<< sqlite3_errmsg(db) <<"\033[0m"<< endl;
+      throw SQL_error(str);
+    } else {
+      if (sqlite3_bind_blob(stmt, 1, blob, blob_size, SQLITE_STATIC)) {
+        cerr <<"\033[31m"<< sqlite3_errmsg(db) <<"\033[0m"<< endl;
+        throw SQL_error(str);
+      } else {
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+          cerr <<"\033[31m"<< sqlite3_errmsg(db) <<"\033[0m"<< endl;
+          throw SQL_error(str);
+        }
+      }
+    }
+    sqlite3_finalize(stmt);
   }
   ~sqlite() { sqlite3_close(db); }
 };
@@ -115,7 +137,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  const regex file_regex(".*/(.+)\\.root$");
+  const regex file_regex("(?:.*/)?(.+)\\.root$");
   std::cmatch match;
 
   for (const char* ifname : ifnames) {
@@ -159,9 +181,11 @@ int main(int argc, char* argv[]) {
             - edges_list.begin();
         }
 
-        hist.bins.resize(n+1);
-        for (int i=0; i<=n; ++i)
-          hist.bins[i] = h->GetBinContent(i);
+        hist.bins.resize((n+1)*2);
+        for (int i=0; i<=n; ++i) {
+          hist.bins[i*2] = h->GetBinContent(i);
+          hist.bins[i*2+1] = h->GetBinError(i);
+        }
 
         hist.labels = labels + (h->GetName()/"[^_]+_[^_]+"_re);
         // TEST(labels2)
@@ -203,9 +227,13 @@ int main(int argc, char* argv[]) {
     for (const auto& label : h.labels) cmd << '\'' << label << "\',";
     for (size_t i=h.labels.size(); i<nlabels; ++i) cmd << "\'\',";
     cmd << h.edges << ",\'";
+    // db(cmd.str().c_str(),h.bins.data(),h.bins.size()*sizeof(double));
+    // const char* blob = "blob";
+    // db(cmd.str().c_str(),blob,5);
+    // cmd >> db;
     char buff[16];
     for (unsigned i=0, n=h.bins.size(); i<n; ++i) {
-      if (i) cmd << ' ';
+      if (i) cmd << ',';
       sprintf(buff,"%.6g",h.bins[i]);
       cmd << buff;
     }
@@ -219,7 +247,7 @@ int main(int argc, char* argv[]) {
     cmd << "insert into axes values (" << i << ",\'";
     const auto& edges = *edges_list[i];
     for (unsigned j=0, m=edges.size(); j<m; ++j) {
-      if (j) cmd << ' ';
+      if (j) cmd << ',';
       cmd << edges[j];
     }
     cmd << "\');";
